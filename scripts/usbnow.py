@@ -5,34 +5,36 @@ import serial.tools.list_ports
 import time
 
 # USBNow Response Codes
-RESP_OK = 0
-RESP_ERROR = 1
-RESP_VERSION = 2
-RESP_PEER = 3
-RESP_PEER_ADDR = 4
-RESP_PEER_EXIST = 5
-RESP_PEER_NUM = 6
-RESP_RECV_CB = 7
-RESP_SEND_CB = 8
-RESP_ERROR_LEN = 9
-RESP_ERROR_UNKNOWN = 10
+class RESP:
+    OK = 0
+    ERROR = 1
+    VERSION = 2
+    PEER = 3
+    PEER_ADDR = 4
+    PEER_EXIST = 5
+    PEER_NUM = 6
+    RECV_CB = 7
+    SEND_CB = 8
+    ERROR_LEN = 9
+    ERROR_UNKNOWN = 10
 
 # USBNow Commands
-CMD_INIT = 0
-CMD_DEINIT = 1
-CMD_GET_VERSION = 2
-CMD_SEND = 3
-CMD_ADD_PEER = 4
-CMD_DEL_PEER = 5
-CMD_MOD_PEER = 6
-CMD_CONFIG_ESPNOW_RATE = 7
-CMD_GET_PEER = 8
-CMD_FETCH_PEER = 9
-CMD_IS_PEER_EXIST = 10
-CMD_GET_PEER_NUM = 11
-CMD_SET_PMK = 12
-CMD_SET_WAKE_WINDOW = 13
-CMD_GET_DEVICE_MAC = 14
+class CMD:
+    INIT = 0
+    DEINIT = 1
+    GET_VERSION = 2
+    SEND = 3
+    ADD_PEER = 4
+    DEL_PEER = 5
+    MOD_PEER = 6
+    CONFIG_ESPNOW_RATE = 7
+    GET_PEER = 8
+    FETCH_PEER = 9
+    IS_PEER_EXIST = 10
+    GET_PEER_NUM = 11
+    SET_PMK = 12
+    SET_WAKE_WINDOW = 13
+    GET_DEVICE_MAC = 14
 
 # Slip constants
 SLIP_END = 0xC0
@@ -45,18 +47,26 @@ class USBNow:
         self.port: str = port
         self.baudrate: int = baudrate
         self.timeout: int = timeout
-        self.serial: serial.Serial = serial.Serial()
-        self.serial.timeout = self.timeout
-        self.serial.baudrate = self.baudrate
-        self.serial.port = self.port
+        self.receive_buffer: list[bytearray] = []
+        self.receive_cb: callable = None
+        self.send_cb: callable = None
+        self.can_close = False
+        self.waiting_response: RESP = None
+        #...
+        self.serial: serial.Serial = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
         self.slip_decoder = SLIP()
         self.receive_thread = threading.Thread(target=self.rx_loop)
         self.receive_thread_running = True
         self.receive_thread.start()
-        self.receive_buffer: list[bytearray] = []
-        self.can_close = False
-        self.open()
+
+    def list_devices(self = None) -> list[str]:
+        ports = serial.tools.list_ports.comports()
+        devices = []
+        for port in ports:
+            devices.append(port.device)
+        return devices
     
+    # Open the serial port
     def open(self) -> bool:
         try:
             self.serial.open()
@@ -64,6 +74,7 @@ class USBNow:
             return False
         return True
     
+    # Close the serial port
     def close(self) -> bool:
         try:
             while(not self.can_close): time.sleep(0.01)
@@ -72,16 +83,23 @@ class USBNow:
             return False
         return True
 
+    # Close the serial port and join the receive thread
     def quit(self) -> None:
+        self.close()
         self.receive_thread_running = False
         self.receive_thread.join() 
 
+    # Initialize the USBNow device
     def init(self) -> bool:
         if(not self.serial.is_open):
              self.open()
-        self.send_slip_bytes(bytes([CMD_INIT]))
-        return self.recv_slip_bytes() == bytes([RESP_OK])
+        self.send_slip_bytes(bytes([CMD.INIT]))
+        if(self.wait_response(RESP.OK)):
+            return True
+        else:
+             raise Exception("USBNow Initialization Failed")
 
+    # Send a command to the USBNow device
     def send_slip_bytes(self, data: bytes):
         for byte in data:
             if byte == SLIP_END:
@@ -92,15 +110,18 @@ class USBNow:
                 self.serial.write(bytes([byte]))
         self.serial.write(bytes([SLIP_END]))
 
-    def recv_slip_bytes(self, timeout: int = None) -> bytes:
+    # Wait for a response from the USBNow device until timeout
+    def wait_response(self, type: CMD, timeout: int = None) -> bytes:
+        self.waiting_response = type
         if(timeout == None):
             timeout = self.timeout
         now = time.time()
         while(time.time() - now < timeout):
-            if(self.receive_buffer):
-                return self.receive_buffer.pop(0)
+            if(self.waiting_response == None):
+                return self.receive_buffer[-1]
         return bytes()
     
+    # Receive loop
     def rx_loop(self):
         while self.receive_thread_running:
             if(not self.serial.is_open): continue
@@ -111,8 +132,26 @@ class USBNow:
                 self.slip_decoder.push(byte[0])
             self.can_close = True
             if(self.slip_decoder.ready):
-                self.receive_buffer.append(self.slip_decoder.get())
+                self.parse_receive_package(self.slip_decoder.get())
             time.sleep(0.001)
+    
+    # Parse received package
+    def parse_receive_package(self, data: bytes):
+        if(data[0] == self.waiting_response):
+            self.waiting_response = None
+        
+        if(data[0] == RESP.RECV_CB):
+            if(self.receive_cb):
+                mac = data[1:7]
+                data = data[7:]
+                self.receive_cb(mac, data)
+        elif(data[0] == RESP.SEND_CB):
+            if(self.send_cb):
+                self.send_cb(data[1:])
+        
+        self.receive_buffer.append(data)
+
+         
 
 #------------------------------------------------------------------------------
 class SLIP:
