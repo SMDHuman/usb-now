@@ -51,8 +51,10 @@ class USBNow:
         self.serial.port = self.port
         self.slip_decoder = SLIP()
         self.receive_thread = threading.Thread(target=self.rx_loop)
+        self.receive_thread_running = True
         self.receive_thread.start()
         self.receive_buffer: list[bytearray] = []
+        self.can_close = False
         self.open()
     
     def open(self) -> bool:
@@ -64,11 +66,16 @@ class USBNow:
     
     def close(self) -> bool:
         try:
+            while(not self.can_close): time.sleep(0.01)
             self.serial.close()
         except serial.SerialException as e:
             return False
         return True
-    
+
+    def quit(self) -> None:
+        self.receive_thread_running = False
+        self.receive_thread.join() 
+
     def init(self) -> bool:
         if(not self.serial.is_open):
              self.open()
@@ -95,14 +102,17 @@ class USBNow:
         return bytes()
     
     def rx_loop(self):
-        while True:
+        while self.receive_thread_running:
             if(not self.serial.is_open): continue
-
-            if(self.serial.in_waiting):
+            self.can_close = False
+            timeout = time.time() + 0.5
+            while(self.serial.in_waiting and time.time() < timeout):
                 byte = self.serial.read(1)
                 self.slip_decoder.push(byte[0])
+            self.can_close = True
             if(self.slip_decoder.ready):
                 self.receive_buffer.append(self.slip_decoder.get())
+            time.sleep(0.001)
 
 #------------------------------------------------------------------------------
 class SLIP:
@@ -140,3 +150,13 @@ class SLIP:
 			self.ready -= 1
 			return(self.packages.pop(0))
 		return(bytearray())
+
+if(__name__ == "__main__"):
+    usbnow = USBNow("COM4")
+    usbnow.open()
+    if(usbnow.init()):
+        print("USBNow Initialized")
+    else:
+        print("USBNow Initialization Failed")
+    usbnow.close()
+    usbnow.quit()
