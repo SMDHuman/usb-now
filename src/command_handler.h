@@ -23,7 +23,7 @@ enum CMD_TYPE_E{
     CMD_GET_PEER_NUM,
     CMD_SET_PMK,
     CMD_SET_WAKE_WINDOW,
-    CMD_GET_DEVICE_MAC,
+    CMD_GET_MAC,
 };
 
 // esp-now response list

@@ -1,6 +1,6 @@
 //-----------------------------------------------------------------------------
 // File: command_handler.cpp
-// Last modified: 06/03/2025
+// Last modified: 12/03/2025
 //-----------------------------------------------------------------------------
 #include "command_handler.h"
 #include <Arduino.h>
@@ -42,21 +42,23 @@ void CMD_parse(uint8_t *msg_data, uint32_t len){
       break;
     }
     case CMD_GET_VERSION: {
-      serial_send_slip(RESP_VERSION);
+      serial_send_slip((uint8_t)RESP_VERSION);
       uint32_t ESP_NOW_VERSION;
       res = esp_now_get_version(&ESP_NOW_VERSION);
-      serial_send_slip(ESP_NOW_VERSION);
+      if(res == ESP_OK){
+        serial_send_slip(ESP_NOW_VERSION);
+      }
       serial_end_slip();
       break;
     }
     case CMD_SEND: {
       if(len < 8){
-        serial_send_slip(RESP_ERROR_LEN);
+        serial_send_slip((uint8_t)RESP_ERROR_LEN);
         serial_end_slip();
         return;
       }
       if((len - 7) > ESP_NOW_MAX_DATA_LEN) {
-        serial_send_slip(RESP_ERROR_LEN);
+        serial_send_slip((uint8_t)RESP_ERROR_LEN);
         serial_end_slip();
         return;
       }
@@ -69,7 +71,7 @@ void CMD_parse(uint8_t *msg_data, uint32_t len){
     case CMD_ADD_PEER:
     case CMD_MOD_PEER: {
       if(len < 9){
-        serial_send_slip(RESP_ERROR_LEN);
+        serial_send_slip((uint8_t)RESP_ERROR_LEN);
         serial_end_slip();
         return;
       }
@@ -84,7 +86,7 @@ void CMD_parse(uint8_t *msg_data, uint32_t len){
     }
     case CMD_DEL_PEER: {
       if(len < 7){
-        serial_send_slip(RESP_ERROR_LEN);
+        serial_send_slip((uint8_t)RESP_ERROR_LEN);
         serial_end_slip();
         return;
       }
@@ -94,7 +96,7 @@ void CMD_parse(uint8_t *msg_data, uint32_t len){
     }
     case CMD_CONFIG_ESPNOW_RATE: {
       if(len < 3){
-        serial_send_slip(RESP_ERROR_LEN);
+        serial_send_slip((uint8_t)RESP_ERROR_LEN);
         serial_end_slip();
         return;
       }
@@ -103,13 +105,13 @@ void CMD_parse(uint8_t *msg_data, uint32_t len){
     }
     case CMD_GET_PEER: {
       if(len < 7){
-        serial_send_slip(RESP_ERROR_LEN);
+        serial_send_slip((uint8_t)RESP_ERROR_LEN);
         serial_end_slip();
         return;
       }
       res = esp_now_get_peer(msg_data+1, &peer_info);
       if(res == ESP_OK) {
-        serial_send_slip(RESP_PEER);
+        serial_send_slip((uint8_t)RESP_PEER);
         serial_send_slip(peer_info.peer_addr, 6);
         serial_send_slip(peer_info.channel);
         serial_send_slip(peer_info.encrypt);
@@ -119,13 +121,13 @@ void CMD_parse(uint8_t *msg_data, uint32_t len){
     }
     case CMD_FETCH_PEER: {
       if(len < 2){
-        serial_send_slip(RESP_ERROR_LEN);
+        serial_send_slip((uint8_t)RESP_ERROR_LEN);
         serial_end_slip();
         return;
       }
       res = esp_now_fetch_peer(msg_data[1], &peer_info);
       if(res == ESP_OK){
-        serial_send_slip(RESP_PEER);
+        serial_send_slip((uint8_t)RESP_PEER);
         serial_send_slip(peer_info.peer_addr, 6);
         serial_send_slip(peer_info.channel);
         serial_send_slip(peer_info.encrypt);
@@ -135,11 +137,11 @@ void CMD_parse(uint8_t *msg_data, uint32_t len){
     }
     case CMD_IS_PEER_EXIST: {
       if(len < 7){
-        serial_send_slip(RESP_ERROR_LEN);
+        serial_send_slip((uint8_t)RESP_ERROR_LEN);
         serial_end_slip();
         return;
       }
-      serial_send_slip(RESP_PEER_EXIST);
+      serial_send_slip((uint8_t)RESP_PEER_EXIST);
       peer_addr = msg_data+1;
       serial_send_slip(esp_now_is_peer_exist(peer_addr));
       serial_end_slip();
@@ -149,16 +151,16 @@ void CMD_parse(uint8_t *msg_data, uint32_t len){
       esp_now_peer_num_t peer_num;
       res = esp_now_get_peer_num(&peer_num);
       if(res == ESP_OK){
-        serial_send_slip(RESP_PEER_NUM);
+        serial_send_slip((uint8_t)RESP_PEER_NUM);
         serial_send_slip(peer_num.total_num);
-        serial_send_slip(peer_num.encrypt_num);
+        //serial_send_slip(peer_num.encrypt_num);
         serial_end_slip();
       }
       break;
     }
     case CMD_SET_PMK: {
       if(len != (ESP_NOW_KEY_LEN + 1)){  // PMK length + command byte
-        serial_send_slip(RESP_ERROR_LEN);
+        serial_send_slip((uint8_t)RESP_ERROR_LEN);
         serial_end_slip();
         return;
       }
@@ -167,7 +169,7 @@ void CMD_parse(uint8_t *msg_data, uint32_t len){
     }
     case CMD_SET_WAKE_WINDOW: {
       if(len < 3){
-        serial_send_slip(RESP_ERROR_LEN);
+        serial_send_slip((uint8_t)RESP_ERROR_LEN);
         serial_end_slip();
         return;
       }
@@ -175,8 +177,8 @@ void CMD_parse(uint8_t *msg_data, uint32_t len){
       res = esp_now_set_wake_window(window);
       break;
     }
-    case CMD_GET_DEVICE_MAC: {
-      serial_send_slip(RESP_PEER_ADDR);
+    case CMD_GET_MAC: {
+      serial_send_slip((uint8_t)RESP_PEER_ADDR);
       uint8_t mac[6];
       WiFi.macAddress(mac);
       serial_send_slip(mac, 6);
@@ -184,18 +186,18 @@ void CMD_parse(uint8_t *msg_data, uint32_t len){
       break;
     }
     default:{
-      serial_send_slip(RESP_ERROR_UNKNOWN);
+      serial_send_slip((uint8_t)RESP_ERROR_UNKNOWN);
       serial_end_slip();
       break;
     }
   }
   // Send response
   if(res == ESP_OK){
-    serial_send_slip(RESP_OK);
+    serial_send_slip((uint8_t)RESP_OK);
   }
   else{
-    serial_send_slip(RESP_ERROR);
-    serial_send_slip(res);
+    serial_send_slip((uint8_t)RESP_ERROR);
+    serial_send_slip(esp_err_to_name(res));
   }
   serial_end_slip();
 }
@@ -203,7 +205,7 @@ void CMD_parse(uint8_t *msg_data, uint32_t len){
 //-----------------------------------------------------------------------------
 static void esp_now_recv_cb(const uint8_t *mac_addr, const uint8_t *data, int data_len){
   display_led_blink(100);
-  serial_send_slip(RESP_RECV_CB);
+  serial_send_slip((uint8_t)RESP_RECV_CB);
   serial_send_slip((uint8_t*)mac_addr, 6);
   serial_send_slip((uint8_t*)data, data_len);
   serial_end_slip();
@@ -211,7 +213,7 @@ static void esp_now_recv_cb(const uint8_t *mac_addr, const uint8_t *data, int da
 //-----------------------------------------------------------------------------
 static void esp_now_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status){
   display_led_blink(50);
-  serial_send_slip(RESP_SEND_CB);
+  serial_send_slip((uint8_t)RESP_SEND_CB);
   serial_send_slip((uint8_t*)mac_addr, 6);
   serial_send_slip(status);
   serial_end_slip();

@@ -58,6 +58,7 @@ def main():
     usbnow.init()
     print("USBNow device initialized")
 
+    print("Version:", usbnow.get_version())
         
     def receive_cb(_from, data):
         mac_str = ':'.join([f"{x:02X}" for x in _from])
@@ -68,11 +69,7 @@ def main():
 
     x = input("Press Enter to exit")
     print("Exiting...")
-    res = usbnow.deinit()
-    if(res):
-        print("USBNow deinitialized")
-    else:
-        print("USBNow deinitialization failed")
+    usbnow.deinit()
     usbnow.close()
 
 

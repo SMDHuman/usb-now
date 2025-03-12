@@ -52,6 +52,21 @@ void serial_send_slip(uint8_t data){
   }
 }
 //-----------------------------------------------------------------------------
+// Send an unsigned integer using the SLIP protocol
+void serial_send_slip(uint data){
+  serial_send_slip((uint8_t*)&data, sizeof(data));
+}
+//-----------------------------------------------------------------------------
+// Send an integer using the SLIP protocol
+void serial_send_slip(int data){
+  serial_send_slip((uint8_t*)&data, sizeof(data));
+}
+//-----------------------------------------------------------------------------
+// Send a char using the SLIP protocol
+void serial_send_slip(char data){
+  serial_send_slip((uint8_t)data);
+}
+//-----------------------------------------------------------------------------
 // Send a string using the SLIP protocol
 void serial_send_slip(String data){
   for(size_t i = 0; i < data.length(); i++){
