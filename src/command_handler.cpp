@@ -7,6 +7,7 @@
 #include <esp_now.h>
 #include <WiFi.h>
 #include "serial_com.h"
+#include "display_handler.h"
 
 //-----------------------------------------------------------------------------
 static esp_now_peer_info_t peer_info;
@@ -201,6 +202,7 @@ void CMD_parse(uint8_t *msg_data, uint32_t len){
 
 //-----------------------------------------------------------------------------
 static void esp_now_recv_cb(const uint8_t *mac_addr, const uint8_t *data, int data_len){
+  display_led_blink(100);
   serial_send_slip(RESP_RECV_CB);
   serial_send_slip((uint8_t*)mac_addr, 6);
   serial_send_slip((uint8_t*)data, data_len);
@@ -208,6 +210,7 @@ static void esp_now_recv_cb(const uint8_t *mac_addr, const uint8_t *data, int da
 }
 //-----------------------------------------------------------------------------
 static void esp_now_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status){
+  display_led_blink(50);
   serial_send_slip(RESP_SEND_CB);
   serial_send_slip((uint8_t*)mac_addr, 6);
   serial_send_slip(status);

@@ -55,7 +55,7 @@ class USBNow:
         #...
         self.serial: serial.Serial = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
         self.slip_decoder = SLIP()
-        self.receive_thread = threading.Thread(target=self.rx_loop)
+        self.receive_thread = threading.Thread(target=self.rx_loop, daemon=True)
         self.receive_thread_running = True
         self.receive_thread.start()
 
@@ -79,25 +79,27 @@ class USBNow:
         try:
             while(not self.can_close): time.sleep(0.01)
             self.serial.close()
+            self.receive_thread_running = False
+            self.receive_thread.join() 
         except serial.SerialException as e:
             return False
         return True
 
-    # Close the serial port and join the receive thread
-    def quit(self) -> None:
-        self.close()
-        self.receive_thread_running = False
-        self.receive_thread.join() 
-
     # Initialize the USBNow device
     def init(self) -> bool:
-        if(not self.serial.is_open):
-             self.open()
         self.send_slip_bytes(bytes([CMD.INIT]))
         if(self.wait_response(RESP.OK)):
             return True
         else:
-             raise Exception("USBNow Initialization Failed")
+            raise Exception("USBNow Initialization Failed")
+    
+    # Deinitialize the USBNow device
+    def deinit(self) -> bool:
+        self.send_slip_bytes(bytes([CMD.DEINIT]))
+        if(self.wait_response(RESP.OK)):
+            return True
+        else:
+            raise Exception("USBNow Deinitialization Failed")
 
     # Send a command to the USBNow device
     def send_slip_bytes(self, data: bytes):

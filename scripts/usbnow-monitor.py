@@ -2,6 +2,16 @@ from usbnow import USBNow
 import argparse
 import sys, os, re, json
 
+def number2base(n: int, b: int) -> str:
+    base_chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    if n == 0:
+        return [0]
+    digits = []
+    while n:
+        digits.append(int(n % b))
+        n //= b
+    return "".join([base_chars[x] for x in digits[::-1]])
+
 def type_mac_address(value: str):
     if not re.match(r'^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$', value):
         raise argparse.ArgumentTypeError(f'{value} is not a valid MAC address')
@@ -30,6 +40,7 @@ def main():
     parser.add_argument("-l", "--list", help="List available devices", nargs="?", const=True)
     parser.add_argument("-b", "--baudrate", help="Set baudrate, Default: 115200", type=int, default=115200)
     parser.add_argument("-t", "--timeout", help="Set timeout, Defauld: 1", type=int, default=1)
+    parser.add_argument("-d", "--display_base", help="Set received message display base", type=int, default=16)
     args = parser.parse_args()
     print(args)
 
@@ -49,13 +60,20 @@ def main():
 
         
     def receive_cb(_from, data):
-        print(f"Received from {_from}: {data}")
+        mac_str = ':'.join([f"{x:02X}" for x in _from])
+        data = [number2base(x, args.display_base) for x in data]
+        print(f"[{mac_str}] {",".join(data)}")
     
     usbnow.receive_cb = receive_cb
 
     x = input("Press Enter to exit")
-    print("Exiting")
-    usbnow.quit()
+    print("Exiting...")
+    res = usbnow.deinit()
+    if(res):
+        print("USBNow deinitialized")
+    else:
+        print("USBNow deinitialization failed")
+    usbnow.close()
 
 
 main()

@@ -1,7 +1,7 @@
 // Creator: Halid Y. 
 // Github: SMDHuman
 // Created: 06/03/2025
-// Last modified: 06/03/2025
+// Last modified: 12/03/2025
 /* Description: ---------------------------------------------------------------
   * USB-Now is an ESP32-based solution consisting of a firmware and a Python 
   * module that enables ESP-NOW communication through USB. It requires an ESP32 
@@ -11,11 +11,14 @@
 
 #include <Arduino.h>
 #include "serial_com.h"
+#include "display_handler.h"
 
 void setup() {
   serial_init();
+  display_init();
 }
 
 void loop() {
   serial_task();
+  display_task();
 }
