@@ -15,7 +15,7 @@ This project is a redesigned implementation of [ESP-NOW_USB_Receiver](https://gi
 
 ### PlatformIO Configuration
 
-1. Install PlatformIO in VSCode or your preferred IDE
+1. Install PlatformIO in VSCode
 2. Create a new project or clone this repository
 3. Configure your `platformio.ini` like in the example: 
     ```ini
@@ -44,6 +44,15 @@ Note: Any ESP32 board with USB-UART bridge should work.
     - Windows: Check Device Manager under "Ports (COM & LPT)"
     - Linux: Run `ls /dev/tty*` (usually appears as `/dev/ttyUSB0` or `/dev/ttyACM0`)
     - macOS: Run `ls /dev/tty.*` (usually appears as `/dev/tty.usbserial-*` or `/dev/tty.SLAB_USBtoUART`)
+3. Upload the project:
+    - Connect your ESP32 board to your computer
+    - Open VS Code with PlatformIO extension installed
+    - Click on the PlatformIO icon in the sidebar
+    - Under "Project Tasks", expand your project
+    - Click on "Upload" to compile and flash the code to your ESP32
+    - Wait for the upload process to complete (you can monitor progress in the terminal)
+
+    Note: Make sure you have selected the correct COM port in platformio.ini and your board is in bootloader mode (most boards enter this mode automatically, but some might require pressing the BOOT button while connecting)
 
 ### Troubleshooting
 
