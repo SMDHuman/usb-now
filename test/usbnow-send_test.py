@@ -1,4 +1,4 @@
-from usbnow import MAC, USBNow
+from ..scripts.usbnow import MAC, USBNow
 import time
 
 def send_cb(addr: bytes, status: str):
