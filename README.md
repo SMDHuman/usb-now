@@ -66,6 +66,10 @@ Note: Any ESP32 board with USB-UART bridge should work.
 ## Python Module Usage
 
 The `usbnow` module provides a simple interface to communicate with ESP-NOW devices through USB.
+You will need to install Pyserial library from pip to use this module. 
+```bash
+pip install pyserial
+```
 
 ### Example: Receiving Data
 
