@@ -39,6 +39,21 @@ class CMD:
     GET_MAC = 14
 #------------------------------------------------------------------------------
 class MAC(Sequence):
+    """MAC Address representation class.
+    This class provides a versatile way to handle MAC (Media Access Control) addresses in various formats.
+    It supports initialization from strings (XX:XX:XX:XX:XX:XX format), bytes, bytearray, or list of integers.
+    The class implements sequence protocol and provides common comparison operations.
+    Args:
+        addr (Union[str, bytes, bytearray, list[int]]): MAC address in one of the supported formats:
+            - str: Colon-separated hexadecimal string (e.g., "00:11:22:33:44:55")
+            - bytes: Raw bytes object containing MAC address
+            - bytearray: Byte array containing MAC address
+            - list[int]: List of integers representing MAC address bytes
+    Raises:
+        ValueError: If the input format is not supported or invalid
+    Properties:
+        addr (bytes): Internal storage of MAC address as bytes
+    """
     def __init__(self, addr: str|bytes|bytearray|list[int]):
         if(isinstance(addr, str)):
             self.addr = bytes([int(x, 16) for x in addr.split(':')])
@@ -69,6 +84,9 @@ class MAC(Sequence):
     
     def __getitem__(self, key):
         return self.addr[key]
+    
+    def __repr__(self):
+         return f"MAC({self.__str__()})"
 
 # Slip constants
 SLIP_END = 0xC0
