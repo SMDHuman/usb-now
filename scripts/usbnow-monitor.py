@@ -5,7 +5,7 @@ import sys, os, re, json
 def number2base(n: int, b: int) -> str:
     base_chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
     if n == 0:
-        return [0]
+        return "0"
     digits = []
     while n:
         digits.append(int(n % b))
@@ -33,16 +33,15 @@ def type_json_path(value: str):
 def main():
     parser = argparse.ArgumentParser(description='Monitor USB devices')
     parser.add_argument("port", type=str, help="Serial port", nargs="?")
-    parser.add_argument("-r", "--peer", help="Peer MAC address", type=type_mac_address)
-    parser.add_argument("-R", "--peers_list", help="Peers MAC address in a json file", type=type_json_path)
-    parser.add_argument("-s", "--self", help="Get Device's MAC address")
-    parser.add_argument("-v", "--version", help="Get Device's version")
     parser.add_argument("-l", "--list", help="List available devices", nargs="?", const=True)
     parser.add_argument("-b", "--baudrate", help="Set baudrate, Default: 115200", type=int, default=115200)
     parser.add_argument("-t", "--timeout", help="Set timeout, Defauld: 1", type=int, default=1)
     parser.add_argument("-d", "--display_base", help="Set received message display base", type=int, default=16)
     args = parser.parse_args()
-    print(args)
+
+    if(not args.port):
+        parser.print_help()
+        sys.exit(0)
 
     if(args.list):
         devices = USBNow.list_devices()
@@ -59,6 +58,7 @@ def main():
     print("USBNow device initialized")
 
     print("Version:", usbnow.get_version())
+    print("MAC:", usbnow.get_mac())
         
     def receive_cb(_from, data):
         mac_str = ':'.join([f"{x:02X}" for x in _from])
