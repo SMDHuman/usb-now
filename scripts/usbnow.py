@@ -1,5 +1,5 @@
 import serial
-import sys, os, struct
+import struct
 import threading
 import serial.tools.list_ports
 import time
@@ -461,13 +461,3 @@ class SLIP:
 			self.ready -= 1
 			return(self.packages.pop(0))
 		return(bytearray())
-
-if(__name__ == "__main__"):
-    usbnow = USBNow("COM4")
-    usbnow.open()
-    if(usbnow.init()):
-        print("USBNow Initialized")
-    else:
-        print("USBNow Initialization Failed")
-    usbnow.close()
-    usbnow.quit()
