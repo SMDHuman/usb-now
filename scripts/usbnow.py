@@ -110,6 +110,7 @@ class USBNow:
         self.receive_thread = threading.Thread(target=self.rx_loop, daemon=True)
         self.can_close_lock = threading.Lock()
         self.OK_resp_lock = threading.Lock()
+        self.serial_com_lock = threading.Lock()
         self.error_resp: str = None
         self.receive_thread_running = True
         self.receive_thread.start()
@@ -148,6 +149,7 @@ class USBNow:
 
     # Send a command to the USBNow device
     def send_slip_bytes(self, data: bytes):
+        self.serial_com_lock.acquire()
         self.send_count += 1
         for byte in data:
             if byte == SLIP_END:
@@ -157,14 +159,16 @@ class USBNow:
             else:
                 self.serial.write(bytes([byte]))
         self.serial.write(bytes([SLIP_END]))
+        self.serial_com_lock.release()
 
     # Wait for a response from the USBNow device until timeout
     def wait_ok(self) -> str|None:
-        self.OK_resp_lock.acquire(timeout=self.timeout)
-        time.sleep(0.001)
-        self.OK_resp_lock.release()
+        res = self.OK_resp_lock.acquire(timeout=self.timeout)
+        if(res == False):
+            return("timeout")
         if(self.print_error and self.error_resp):
             print("Error:", self.error_resp)
+        self.OK_resp_lock.release()
         return(self.error_resp)
     
     # Receive loop
@@ -177,7 +181,7 @@ class USBNow:
                 while(self.serial.in_waiting and time.time() < timeout):
                     byte = self.serial.read(1)
                     self.slip_decoder.push(byte[0])
-            if(self.slip_decoder.ready):
+            if(self.slip_decoder.in_wait() > 0):
                 self.parse_receive_package(self.slip_decoder.get())
             time.sleep(0.001)
         self.OK_resp_lock.release()
@@ -445,37 +449,37 @@ class USBNow:
 
 #------------------------------------------------------------------------------
 class SLIP:
-	END = 0xC0
-	ESC = 0xDB
-	ESC_END = 0xDC
-	ESC_ESC = 0xDD
-	def __init__(self):
-		self.buffer: list[int] = []
-		self.packages: list[bytearray] = []
-		self.esc_flag: bool= False
-		self.ready: int= 0
-		self.wait_ack: bool = False
-	#...
-	def push(self, value: int):
-		if(self.esc_flag):
-			if(value == self.ESC_END):
-				self.buffer.append(self.END)
-			elif(value == self.ESC_ESC):
-				self.buffer.append(self.ESC)
-			elif(value == self.END):
-				self.wait_ack = True
-			self.esc_flag = False
-		elif(value == self.ESC):
-			self.esc_flag = True
-		elif(value == self.END):
-			self.ready += 1
-			self.packages.append(bytearray(self.buffer))
-			self.buffer.clear()
-		else:
-			self.buffer.append(value)
-	#...
-	def get(self) -> bytearray:
-		if(self.ready):
-			self.ready -= 1
-			return(self.packages.pop(0))
-		return(bytearray())
+    END = 0xC0
+    ESC = 0xDB
+    ESC_END = 0xDC
+    ESC_ESC = 0xDD
+    def __init__(self):
+        self.buffer: list[int] = []
+        self.packages: list[bytearray] = []
+        self.esc_flag: bool= False
+        self.wait_ack: bool = False
+    #...
+    def push(self, value: int):
+        if(self.esc_flag):
+            if(value == self.ESC_END):
+                self.buffer.append(self.END)
+            elif(value == self.ESC_ESC):
+                self.buffer.append(self.ESC)
+            elif(value == self.END):
+                self.wait_ack = True
+            self.esc_flag = False
+        elif(value == self.ESC):
+            self.esc_flag = True
+        elif(value == self.END):
+            self.packages.append(bytearray(self.buffer))
+            self.buffer.clear()
+        else:
+            self.buffer.append(value)
+    #...
+    def get(self) -> bytearray:
+        if(len(self.packages) > 0):
+            return(self.packages.pop(0))
+        return(bytearray())
+     
+    def in_wait(self) -> int:
+        return(len(self.packages))
