@@ -24,6 +24,7 @@ void serial_init(){
 void serial_task(){
   if(Serial.available()){
     slip_push(rx_slip_buffer, Serial.read()); 
+    slip_buffer_header_t *slip_buffer_header = (slip_buffer_header_t *)rx_slip_buffer;
   }
   if(slip_is_ready(rx_slip_buffer)){
     size_t package_len = slip_get_size(rx_slip_buffer);

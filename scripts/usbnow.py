@@ -151,15 +151,25 @@ class USBNow:
     def send_slip_bytes(self, data: bytes):
         self.serial_com_lock.acquire()
         self.send_count += 1
+        checksum = 0
         for byte in data:
-            if byte == SLIP_END:
-                self.serial.write(bytes([SLIP_ESC, SLIP_ESC_END]))
-            elif byte == SLIP_ESC:
-                self.serial.write(bytes([SLIP_ESC, SLIP_ESC_ESC]))
-            else:
-                self.serial.write(bytes([byte]))
+            self.send_slip_byte(byte)
+            checksum += byte + 1
+        checksum = struct.pack("I", checksum)
+        #print("Checksum:", checksum)
+        #print(data)
+        for byte in checksum:
+            self.send_slip_byte(byte)
         self.serial.write(bytes([SLIP_END]))
         self.serial_com_lock.release()
+    
+    def send_slip_byte(self, data: int):
+        if data == SLIP_END:
+            self.serial.write(bytes([SLIP_ESC, SLIP_ESC_END]))
+        elif data == SLIP_ESC:
+            self.serial.write(bytes([SLIP_ESC, SLIP_ESC_ESC]))
+        else:
+            self.serial.write(bytes([data]))
 
     # Wait for a response from the USBNow device until timeout
     def wait_ok(self) -> str|None:
@@ -176,18 +186,22 @@ class USBNow:
         self.OK_resp_lock.acquire()
         while self.receive_thread_running:
             if(not self.serial.is_open): continue
-            timeout = time.time() + 0.5
+            timeout = time.time() + 1
             with self.can_close_lock:
                 while(self.serial.in_waiting and time.time() < timeout):
                     byte = self.serial.read(1)
+                    #print("rx: ", byte)
                     self.slip_decoder.push(byte[0])
             if(self.slip_decoder.in_wait() > 0):
-                self.parse_receive_package(self.slip_decoder.get())
-            time.sleep(0.001)
+                data = self.slip_decoder.get()
+                #print("Data: ", data)
+                self.parse_receive_package(data)
+            time.sleep(0.0001)
         self.OK_resp_lock.release()
     
     # Parse received package
     def parse_receive_package(self, data: bytes) -> None:
+        #print("Data: ", data)
         if(data[0] == self.waiting_response):
             self.waiting_response = None
         
@@ -202,7 +216,7 @@ class USBNow:
         elif(data[0] == RESP.ERROR):
             self.error_resp = data[1:].decode()
             self.OK_resp_lock.release()
-            time.sleep(0.001)
+            time.sleep(0.0001)
             self.OK_resp_lock.acquire()
         elif(data[0] == RESP.ERROR_LEN):
             raise Exception("USBNow Error: Invalid Length")
@@ -211,7 +225,7 @@ class USBNow:
         elif(data[0] == RESP.OK):
             self.error_resp = None
             self.OK_resp_lock.release()
-            time.sleep(0.001)
+            time.sleep(0.0001)
             self.OK_resp_lock.acquire()
         else:
             self.receive_buffer.append(data)
@@ -453,28 +467,42 @@ class SLIP:
     ESC = 0xDB
     ESC_END = 0xDC
     ESC_ESC = 0xDD
-    def __init__(self):
+    def __init__(self, checksum_enable = True):
         self.buffer: list[int] = []
         self.packages: list[bytearray] = []
         self.esc_flag: bool= False
         self.wait_ack: bool = False
+        self.checksum_enable: bool = checksum_enable
+        self.checksum = 0
     #...
     def push(self, value: int):
         if(self.esc_flag):
             if(value == self.ESC_END):
                 self.buffer.append(self.END)
+                self.checksum += self.END + 1
             elif(value == self.ESC_ESC):
                 self.buffer.append(self.ESC)
+                self.checksum += self.ESC + 1
             elif(value == self.END):
                 self.wait_ack = True
             self.esc_flag = False
         elif(value == self.ESC):
             self.esc_flag = True
         elif(value == self.END):
+            if(self.checksum_enable):
+                for byte in self.buffer[-4:]:
+                    self.checksum -= byte+1
+                checksum = struct.unpack("I", bytes(self.buffer[-4:]))[0]
+                #print("Checksums:", checksum, self.checksum)
+                if(self.checksum != checksum): return
+                self.buffer = self.buffer[:-4]
             self.packages.append(bytearray(self.buffer))
             self.buffer.clear()
+            self.checksum = 0
         else:
             self.buffer.append(value)
+            self.checksum += value + 1
+        self.checksum %= 2**32
     #...
     def get(self) -> bytearray:
         if(len(self.packages) > 0):

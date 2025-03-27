@@ -67,7 +67,7 @@ def main():
     
     usbnow.receive_cb = receive_cb
 
-    x = input("Press Enter to exit")
+    x = input("Press Enter to exit\n")
     print("Exiting...")
     usbnow.deinit()
     usbnow.close()
