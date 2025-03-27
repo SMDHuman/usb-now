@@ -99,11 +99,12 @@ class USBNow(Protocol):
     def _self_(self):
         return(self)
     
-    def __init__(self, port: str, baudrate: int = 115200, timeout: int = 1, print_error: bool = False): 
+    def __init__(self, port: str, baudrate: int = 115200, timeout: int = 1, print_error: bool = False, wait_resp: bool = True): 
         self.port: str = port
         self.baudrate: int = baudrate
         self.timeout: int = timeout
         self.print_error = print_error
+        self.wait_resp: bool = wait_resp
         self.receive_buffer: list[bytearray] = []
         self.receive_cb: Callable[[bytes, bytes], None] = None
         self.send_cb: Callable[[bytes, str], None] = None
@@ -177,7 +178,6 @@ class USBNow(Protocol):
         #res = self.OK_resp_lock.acquire(timeout=self.timeout)
         #print("waiting for OK")
         with self.OK_resp_lock:
-            self.OK_resp_lock.notify()
             res = self.OK_resp_lock.wait(self.timeout)
             if(res == False):
                 return("timeout")
@@ -220,7 +220,6 @@ class USBNow(Protocol):
             raise Exception("USBNow Error: Unknown Command")
         elif(data[0] == RESP.OK):
             with self.OK_resp_lock:
-                
                 self.error_resp = None
                 self.OK_resp_lock.notify()
                 #self.OK_resp_lock.release()
@@ -248,7 +247,7 @@ class USBNow(Protocol):
             str|None: None if successful, error message string if failed
         """
         self.send_slip_bytes(bytes([CMD.DEINIT]))
-        return(self.wait_ok())
+        if(self.wait_resp): return(self.wait_ok())
 
     def register_recv_cb(self, cb: Callable[[bytes, bytes], None]) -> None:
         """Register callback function for receiving data.
@@ -273,7 +272,11 @@ class USBNow(Protocol):
             int|str: Version number if successful, error message string if failed
         """
         self.send_slip_bytes(bytes([CMD.GET_VERSION]))
-        res = self.wait_ok()
+        if(self.wait_resp): 
+            res = self.wait_ok()
+        else:
+            res = None
+        #...
         if(res): return res
         if(len(self.receive_buffer) == 0): return "No Response"
         if(self.receive_buffer[-1][0] == RESP.VERSION):
@@ -290,7 +293,7 @@ class USBNow(Protocol):
             str|None: None if successful, error message string if failed
         """
         self.send_slip_bytes(bytes([CMD.SEND]) + bytes(peer_addr) + data)
-        return self.wait_ok()
+        if(self.wait_resp): return self.wait_ok()
     
     def add_peer(self, peer_addr: MAC, channel: int = 0, encrypt: bool = False) -> str|None:
         """Add peer device to peer list.
@@ -304,7 +307,7 @@ class USBNow(Protocol):
             str|None: None if successful, error message string if failed
         """
         self.send_slip_bytes(bytes([CMD.ADD_PEER]) + bytes(peer_addr) + bytes([channel, encrypt]))
-        return self.wait_ok()
+        if(self.wait_resp): return self.wait_ok()
     
     def mod_peer(self, peer_addr: MAC, channel: int = 0, encrypt: bool = False) -> str|None:
         """Modify existing peer device parameters.
@@ -318,7 +321,7 @@ class USBNow(Protocol):
             str|None: None if successful, error message string if failed
         """
         self.send_slip_bytes(bytes([CMD.MOD_PEER]) + bytes(peer_addr) + bytes([channel, encrypt]))
-        return self.wait_ok()
+        if(self.wait_resp): return self.wait_ok()
     
     def del_peer(self, peer_addr: MAC) -> str|None:
         """Delete peer from peer list.
@@ -330,7 +333,7 @@ class USBNow(Protocol):
             str|None: None if successful, error message string if failed
         """
         self.send_slip_bytes(bytes([CMD.DEL_PEER]) + bytes(peer_addr))
-        return self.wait_ok()
+        if(self.wait_resp): return self.wait_ok()
 
     def config_espnow_rate(self, ifx: int, rate: int) -> str|None:
         """Configure ESP-NOW data rate.
@@ -343,7 +346,7 @@ class USBNow(Protocol):
             str|None: None if successful, error message string if failed
         """
         self.send_slip_bytes(bytes([CMD.CONFIG_ESPNOW_RATE, ifx, rate]))
-        return self.wait_ok()
+        if(self.wait_resp): return self.wait_ok()
     
     def get_peer(self, peer_addr: MAC) -> tuple[bytes, int, bool]:
         """Get peer device information.
@@ -358,7 +361,7 @@ class USBNow(Protocol):
             Exception: If no peer response received
         """
         self.send_slip_bytes(bytes([CMD.GET_PEER]) + bytes(peer_addr))
-        self.wait_ok()
+        if(self.wait_resp): self.wait_ok()
         if(len(self.receive_buffer) == 0): return "No Response"
         if(self.receive_buffer[-1][0] == RESP.PEER):
             return (self.receive_buffer[-1][1:7], self.receive_buffer[-1][7], self.receive_buffer[-1][8])
@@ -378,7 +381,7 @@ class USBNow(Protocol):
             Exception: If no peer response received
         """
         self.send_slip_bytes(bytes([CMD.FETCH_PEER, from_head]))
-        self.wait_ok()
+        if(self.wait_resp): self.wait_ok()
         if(len(self.receive_buffer) == 0): return "No Response"
         if(self.receive_buffer[-1][0] == RESP.PEER):
             return (self.receive_buffer[-1][1:7], self.receive_buffer[-1][7], self.receive_buffer[-1][8])
@@ -398,7 +401,7 @@ class USBNow(Protocol):
             Exception: If no response received
         """
         self.send_slip_bytes(bytes([CMD.IS_PEER_EXIST]) + bytes(peer_addr))
-        self.wait_ok()
+        if(self.wait_resp): self.wait_ok()
         if(len(self.receive_buffer) == 0): return "No Response"
         if(self.receive_buffer[-1][0] == RESP.PEER_EXIST):
             return self.receive_buffer[-1][1]
@@ -415,7 +418,7 @@ class USBNow(Protocol):
             Exception: If no response received
         """
         self.send_slip_bytes(bytes([CMD.GET_PEER_NUM]))
-        self.wait_ok()
+        if(self.wait_resp): self.wait_ok()
         if(len(self.receive_buffer) == 0): return "No Response"
         if(self.receive_buffer[-1][0] == RESP.PEER_NUM):
             return struct.unpack("i", self.receive_buffer[-1][1:])[0]
@@ -432,7 +435,7 @@ class USBNow(Protocol):
             str|None: None if successful, error message string if failed
         """
         self.send_slip_bytes(bytes([CMD.SET_PMK]) + pmk)
-        return self.wait_ok()
+        if(self.wait_resp): return self.wait_ok()
     
     def set_wake_window(self, window: int) -> str|None:
         """Set wake window duration.
@@ -445,7 +448,7 @@ class USBNow(Protocol):
         """
         window = struct.pack("H", window)
         self.send_slip_bytes(bytes([CMD.SET_WAKE_WINDOW]) + window)
-        return self.wait_ok()
+        if(self.wait_resp): return self.wait_ok()
     
     def get_mac(self) -> MAC:
         """Get MAC address of local device.
@@ -457,7 +460,7 @@ class USBNow(Protocol):
             Exception: If no response received
         """
         self.send_slip_bytes(bytes([CMD.GET_MAC]))
-        self.wait_ok()
+        if(self.wait_resp): self.wait_ok()
         if(len(self.receive_buffer) == 0): return "No Response"
         if(self.receive_buffer[-1][0] == RESP.PEER_ADDR):
             return MAC(self.receive_buffer[-1][1:7])
