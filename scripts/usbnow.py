@@ -109,11 +109,12 @@ class USBNow:
         self.slip_decoder = SLIP()
         self.receive_thread = threading.Thread(target=self.rx_loop, daemon=True)
         self.can_close_lock = threading.Lock()
-        self.OK_resp_lock = threading.Lock()
+        self.OK_resp_lock = threading.Condition()
         self.serial_com_lock = threading.Lock()
         self.error_resp: str = None
         self.receive_thread_running = True
-        self.receive_thread.start()
+        self._will_wait_ok = False
+        #self.receive_thread.start()
         #...
         self.send_count: int = 0
         self.resp_ok_count: int = 0
@@ -171,19 +172,27 @@ class USBNow:
         else:
             self.serial.write(bytes([data]))
 
+    def will_wait_ok(self):
+        self._will_wait_ok = True
+
     # Wait for a response from the USBNow device until timeout
     def wait_ok(self) -> str|None:
-        res = self.OK_resp_lock.acquire(timeout=self.timeout)
-        if(res == False):
-            return("timeout")
+        #res = self.OK_resp_lock.acquire(timeout=self.timeout)
+        #print("waiting for OK")
+        with self.OK_resp_lock:
+            self.OK_resp_lock.notify()
+            res = self.OK_resp_lock.wait(self.timeout)
+            if(res == False):
+                return("timeout")
+            self._will_wait_ok = False
         if(self.print_error and self.error_resp):
             print("Error:", self.error_resp)
-        self.OK_resp_lock.release()
+        #self.OK_resp_lock.release()
         return(self.error_resp)
     
     # Receive loop
     def rx_loop(self):
-        self.OK_resp_lock.acquire()
+        #self.OK_resp_lock.acquire()
         while self.receive_thread_running:
             if(not self.serial.is_open): continue
             timeout = time.time() + 1
@@ -196,8 +205,9 @@ class USBNow:
                 data = self.slip_decoder.get()
                 #print("Data: ", data)
                 self.parse_receive_package(data)
-            time.sleep(0.001)
-        self.OK_resp_lock.release()
+            time.sleep(0.0001)
+            #self.OK_resp_lock.acquire(blocking= False)
+        #self.OK_resp_lock.release()
     
     # Parse received package
     def parse_receive_package(self, data: bytes) -> None:
@@ -214,19 +224,21 @@ class USBNow:
             if(self.send_cb):
                 self.send_cb(data[1:7], ["OK", "ERROR"][data[7]])
         elif(data[0] == RESP.ERROR):
-            self.error_resp = data[1:].decode()
-            self.OK_resp_lock.release()
-            time.sleep(0.001)
-            self.OK_resp_lock.acquire()
+            with self.OK_resp_lock:
+                if(self._will_wait_ok): self.OK_resp_lock.wait(timeout=0.01)
+                self.error_resp = data[1:].decode()
+                if(self._will_wait_ok): self.OK_resp_lock.notify()
+                #self.OK_resp_lock.release()
         elif(data[0] == RESP.ERROR_LEN):
             raise Exception("USBNow Error: Invalid Length")
         elif(data[0] == RESP.ERROR_UNKNOWN):
             raise Exception("USBNow Error: Unknown Command")
         elif(data[0] == RESP.OK):
-            self.error_resp = None
-            self.OK_resp_lock.release()
-            time.sleep(0.001)
-            self.OK_resp_lock.acquire()
+            with self.OK_resp_lock:
+                if(self._will_wait_ok): self.OK_resp_lock.wait(timeout=0.01)
+                self.error_resp = None
+                if(self._will_wait_ok): self.OK_resp_lock.notify()
+                #self.OK_resp_lock.release()
         else:
             self.receive_buffer.append(data)
             if(len(self.receive_buffer) > 10):
@@ -241,6 +253,7 @@ class USBNow:
         Returns:
             str|None: None if successful, error message string if failed
         """
+        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.INIT]))
         return(self.wait_ok())
     
@@ -250,6 +263,7 @@ class USBNow:
         Returns:
             str|None: None if successful, error message string if failed
         """
+        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.DEINIT]))
         return(self.wait_ok())
 
@@ -275,6 +289,7 @@ class USBNow:
         Returns:
             int|str: Version number if successful, error message string if failed
         """
+        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.GET_VERSION]))
         res = self.wait_ok()
         if(res): return res
@@ -292,6 +307,7 @@ class USBNow:
         Returns:
             str|None: None if successful, error message string if failed
         """
+        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.SEND]) + bytes(peer_addr) + data)
         return self.wait_ok()
     
@@ -306,6 +322,7 @@ class USBNow:
         Returns:
             str|None: None if successful, error message string if failed
         """
+        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.ADD_PEER]) + bytes(peer_addr) + bytes([channel, encrypt]))
         return self.wait_ok()
     
@@ -320,6 +337,7 @@ class USBNow:
         Returns:
             str|None: None if successful, error message string if failed
         """
+        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.MOD_PEER]) + bytes(peer_addr) + bytes([channel, encrypt]))
         return self.wait_ok()
     
@@ -332,6 +350,7 @@ class USBNow:
         Returns:
             str|None: None if successful, error message string if failed
         """
+        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.DEL_PEER]) + bytes(peer_addr))
         return self.wait_ok()
 
@@ -345,6 +364,7 @@ class USBNow:
         Returns:
             str|None: None if successful, error message string if failed
         """
+        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.CONFIG_ESPNOW_RATE, ifx, rate]))
         return self.wait_ok()
     
@@ -360,6 +380,7 @@ class USBNow:
         Raises:
             Exception: If no peer response received
         """
+        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.GET_PEER]) + bytes(peer_addr))
         self.wait_ok()
         if(len(self.receive_buffer) == 0): return "No Response"
@@ -380,6 +401,7 @@ class USBNow:
         Raises:
             Exception: If no peer response received
         """
+        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.FETCH_PEER, from_head]))
         self.wait_ok()
         if(len(self.receive_buffer) == 0): return "No Response"
@@ -400,6 +422,7 @@ class USBNow:
         Raises:
             Exception: If no response received
         """
+        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.IS_PEER_EXIST]) + bytes(peer_addr))
         self.wait_ok()
         if(len(self.receive_buffer) == 0): return "No Response"
@@ -417,6 +440,7 @@ class USBNow:
         Raises:
             Exception: If no response received
         """
+        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.GET_PEER_NUM]))
         self.wait_ok()
         if(len(self.receive_buffer) == 0): return "No Response"
@@ -434,6 +458,7 @@ class USBNow:
         Returns:
             str|None: None if successful, error message string if failed
         """
+        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.SET_PMK]) + pmk)
         return self.wait_ok()
     
@@ -447,6 +472,7 @@ class USBNow:
             str|None: None if successful, error message string if failed
         """
         window = struct.pack("H", window)
+        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.SET_WAKE_WINDOW]) + window)
         return self.wait_ok()
     
@@ -459,6 +485,7 @@ class USBNow:
         Raises:
             Exception: If no response received
         """
+        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.GET_MAC]))
         self.wait_ok()
         if(len(self.receive_buffer) == 0): return "No Response"
@@ -482,6 +509,7 @@ class SLIP:
         self.checksum = 0
     #...
     def push(self, value: int):
+        #...
         if(self.esc_flag):
             if(value == self.ESC_END):
                 self.buffer.append(self.END)
@@ -492,19 +520,28 @@ class SLIP:
             elif(value == self.END):
                 self.wait_ack = True
             self.esc_flag = False
+        #...
         elif(value == self.ESC):
             self.esc_flag = True
+        #...
         elif(value == self.END):
             if(self.checksum_enable):
+                #...
+                if(len(self.buffer) < 4):
+                    self.reset_buffer()
+                    return
+                #...
                 for byte in self.buffer[-4:]:
                     self.checksum -= byte+1
                 checksum = struct.unpack("I", bytes(self.buffer[-4:]))[0]
-                #print("Checksums:", checksum, self.checksum)
-                if(self.checksum != checksum): return
+                #...
+                if(self.checksum != checksum): 
+                    self.reset_buffer()
+                    return
                 self.buffer = self.buffer[:-4]
             self.packages.append(bytearray(self.buffer))
-            self.buffer.clear()
-            self.checksum = 0
+            self.reset_buffer()
+        #...
         else:
             self.buffer.append(value)
             self.checksum += value + 1
@@ -514,6 +551,12 @@ class SLIP:
         if(len(self.packages) > 0):
             return(self.packages.pop(0))
         return(bytearray())
-     
+    #...
     def in_wait(self) -> int:
         return(len(self.packages))
+    #...
+    def reset_buffer(self):
+        self.buffer.clear()
+        self.esc_flag = False
+        self.wait_ack = False
+        self.checksum = 0
