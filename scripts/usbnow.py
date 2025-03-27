@@ -1,10 +1,11 @@
-import serial
 import struct
 import threading
-import serial.tools.list_ports
 import time
 from collections.abc import Sequence
 from typing import Callable
+from serial import Serial
+from serial.threaded import ReaderThread, Protocol
+import serial.tools.list_ports
 
 # USBNow Response Codes
 class RESP:
@@ -94,7 +95,10 @@ SLIP_ESC = 0xDB
 SLIP_ESC_END = 0xDC
 SLIP_ESC_ESC = 0xDD
 
-class USBNow:
+class USBNow(Protocol):
+    def _self_(self):
+        return(self)
+    
     def __init__(self, port: str, baudrate: int = 115200, timeout: int = 1, print_error: bool = False): 
         self.port: str = port
         self.baudrate: int = baudrate
@@ -106,15 +110,16 @@ class USBNow:
         self.error_resp: str = None
         #...
         self.serial: serial.Serial = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
+        self.serial_thread = ReaderThread(self.serial, self._self_)
+        self.serial_thread.start()
         self.slip_decoder = SLIP()
         #...
-        self.receive_thread = threading.Thread(target=self.rx_loop, daemon=True)
+        #self.receive_thread = threading.Thread(target=self.rx_loop, daemon=True)
         self.can_close_lock = threading.Lock()
         self.OK_resp_lock = threading.Condition()
         self.serial_com_lock = threading.Lock()
         self.receive_thread_running = threading.Event()
-        self._will_wait_ok = threading.Event()
-        self.receive_thread.start()
+        #self.receive_thread.start()
         #...
         self.send_count: int = 0
         self.resp_ok_count: int = 0
@@ -167,46 +172,30 @@ class USBNow:
         else:
             self.serial.write(bytes([data]))
 
-    def will_wait_ok(self):
-        self._will_wait_ok.set()
-
     # Wait for a response from the USBNow device until timeout
     def wait_ok(self) -> str|None:
         #res = self.OK_resp_lock.acquire(timeout=self.timeout)
-        print("waiting for OK")
+        #print("waiting for OK")
         with self.OK_resp_lock:
             self.OK_resp_lock.notify()
             res = self.OK_resp_lock.wait(self.timeout)
             if(res == False):
                 return("timeout")
-            self._will_wait_ok.clear()
         if(self.print_error and self.error_resp):
             print("Error:", self.error_resp)
-        print("OK Release")
+        #print("OK Release")
         #self.OK_resp_lock.release()
         return(self.error_resp)
     
-    # Receive loop
-    def rx_loop(self):
-        #self.OK_resp_lock.acquire()
-        while not self.receive_thread_running.is_set():
-            if(not self.serial.is_open): continue
-            timeout = time.time() + 1
-            #...
-            self.can_close_lock.acquire()
-            while(self.serial.in_waiting and time.time() < timeout):
-                byte = self.serial.read(1)
-                #print("rx: ", byte)
-                self.slip_decoder.push(byte[0])
-            self.can_close_lock.release()
+    # Called when data is received By Serial.ReaderThread
+    def data_received(self, data: bytes):
+        for byte in data:
+            self.slip_decoder.push(byte)
             #...
             if(self.slip_decoder.in_wait() > 0):
                 data = self.slip_decoder.get()
                 #print("Data: ", data)
                 self.parse_receive_package(data)
-            time.sleep(0.0001)
-            #self.OK_resp_lock.acquire(blocking= False)
-        #self.OK_resp_lock.release()
     
     # Parse received package
     def parse_receive_package(self, data: bytes) -> None:
@@ -222,9 +211,8 @@ class USBNow:
                 self.send_cb(data[1:7], ["OK", "ERROR"][data[7]])
         elif(data[0] == RESP.ERROR):
             with self.OK_resp_lock:
-                if(self._will_wait_ok.is_set()): self.OK_resp_lock.wait(timeout=0.01)
                 self.error_resp = data[1:].decode()
-                if(self._will_wait_ok.is_set()): self.OK_resp_lock.notify()
+                self.OK_resp_lock.notify()
                 #self.OK_resp_lock.release()
         elif(data[0] == RESP.ERROR_LEN):
             raise Exception("USBNow Error: Invalid Length")
@@ -232,9 +220,9 @@ class USBNow:
             raise Exception("USBNow Error: Unknown Command")
         elif(data[0] == RESP.OK):
             with self.OK_resp_lock:
-                if(self._will_wait_ok.is_set()): self.OK_resp_lock.wait(timeout=0.01)
+                
                 self.error_resp = None
-                if(self._will_wait_ok.is_set()): self.OK_resp_lock.notify()
+                self.OK_resp_lock.notify()
                 #self.OK_resp_lock.release()
         else:
             self.receive_buffer.append(data)
@@ -250,7 +238,6 @@ class USBNow:
         Returns:
             str|None: None if successful, error message string if failed
         """
-        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.INIT]))
         return(self.wait_ok())
     
@@ -260,7 +247,6 @@ class USBNow:
         Returns:
             str|None: None if successful, error message string if failed
         """
-        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.DEINIT]))
         return(self.wait_ok())
 
@@ -286,7 +272,6 @@ class USBNow:
         Returns:
             int|str: Version number if successful, error message string if failed
         """
-        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.GET_VERSION]))
         res = self.wait_ok()
         if(res): return res
@@ -304,7 +289,6 @@ class USBNow:
         Returns:
             str|None: None if successful, error message string if failed
         """
-        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.SEND]) + bytes(peer_addr) + data)
         return self.wait_ok()
     
@@ -319,7 +303,6 @@ class USBNow:
         Returns:
             str|None: None if successful, error message string if failed
         """
-        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.ADD_PEER]) + bytes(peer_addr) + bytes([channel, encrypt]))
         return self.wait_ok()
     
@@ -334,7 +317,6 @@ class USBNow:
         Returns:
             str|None: None if successful, error message string if failed
         """
-        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.MOD_PEER]) + bytes(peer_addr) + bytes([channel, encrypt]))
         return self.wait_ok()
     
@@ -347,7 +329,6 @@ class USBNow:
         Returns:
             str|None: None if successful, error message string if failed
         """
-        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.DEL_PEER]) + bytes(peer_addr))
         return self.wait_ok()
 
@@ -361,7 +342,6 @@ class USBNow:
         Returns:
             str|None: None if successful, error message string if failed
         """
-        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.CONFIG_ESPNOW_RATE, ifx, rate]))
         return self.wait_ok()
     
@@ -377,7 +357,6 @@ class USBNow:
         Raises:
             Exception: If no peer response received
         """
-        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.GET_PEER]) + bytes(peer_addr))
         self.wait_ok()
         if(len(self.receive_buffer) == 0): return "No Response"
@@ -398,7 +377,6 @@ class USBNow:
         Raises:
             Exception: If no peer response received
         """
-        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.FETCH_PEER, from_head]))
         self.wait_ok()
         if(len(self.receive_buffer) == 0): return "No Response"
@@ -419,7 +397,6 @@ class USBNow:
         Raises:
             Exception: If no response received
         """
-        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.IS_PEER_EXIST]) + bytes(peer_addr))
         self.wait_ok()
         if(len(self.receive_buffer) == 0): return "No Response"
@@ -437,7 +414,6 @@ class USBNow:
         Raises:
             Exception: If no response received
         """
-        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.GET_PEER_NUM]))
         self.wait_ok()
         if(len(self.receive_buffer) == 0): return "No Response"
@@ -455,7 +431,6 @@ class USBNow:
         Returns:
             str|None: None if successful, error message string if failed
         """
-        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.SET_PMK]) + pmk)
         return self.wait_ok()
     
@@ -469,7 +444,6 @@ class USBNow:
             str|None: None if successful, error message string if failed
         """
         window = struct.pack("H", window)
-        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.SET_WAKE_WINDOW]) + window)
         return self.wait_ok()
     
@@ -482,7 +456,6 @@ class USBNow:
         Raises:
             Exception: If no response received
         """
-        self.will_wait_ok()
         self.send_slip_bytes(bytes([CMD.GET_MAC]))
         self.wait_ok()
         if(len(self.receive_buffer) == 0): return "No Response"
