@@ -196,7 +196,7 @@ class USBNow:
                 data = self.slip_decoder.get()
                 #print("Data: ", data)
                 self.parse_receive_package(data)
-            time.sleep(0.0001)
+            time.sleep(0.001)
         self.OK_resp_lock.release()
     
     # Parse received package
@@ -216,7 +216,7 @@ class USBNow:
         elif(data[0] == RESP.ERROR):
             self.error_resp = data[1:].decode()
             self.OK_resp_lock.release()
-            time.sleep(0.0001)
+            time.sleep(0.001)
             self.OK_resp_lock.acquire()
         elif(data[0] == RESP.ERROR_LEN):
             raise Exception("USBNow Error: Invalid Length")
@@ -225,7 +225,7 @@ class USBNow:
         elif(data[0] == RESP.OK):
             self.error_resp = None
             self.OK_resp_lock.release()
-            time.sleep(0.0001)
+            time.sleep(0.001)
             self.OK_resp_lock.acquire()
         else:
             self.receive_buffer.append(data)
