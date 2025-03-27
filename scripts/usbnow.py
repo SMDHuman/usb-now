@@ -103,18 +103,18 @@ class USBNow:
         self.receive_buffer: list[bytearray] = []
         self.receive_cb: Callable[[bytes, bytes], None] = None
         self.send_cb: Callable[[bytes, str], None] = None
-        self.waiting_response: RESP = None
+        self.error_resp: str = None
         #...
         self.serial: serial.Serial = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
         self.slip_decoder = SLIP()
+        #...
         self.receive_thread = threading.Thread(target=self.rx_loop, daemon=True)
         self.can_close_lock = threading.Lock()
         self.OK_resp_lock = threading.Condition()
         self.serial_com_lock = threading.Lock()
-        self.error_resp: str = None
-        self.receive_thread_running = True
-        self._will_wait_ok = False
-        #self.receive_thread.start()
+        self.receive_thread_running = threading.Event()
+        self._will_wait_ok = threading.Event()
+        self.receive_thread.start()
         #...
         self.send_count: int = 0
         self.resp_ok_count: int = 0
@@ -138,15 +138,10 @@ class USBNow:
         return True
     
     # Close the serial port
-    def close(self) -> bool:
-        try:
-            with self.can_close_lock:
-                self.serial.close()
-                self.receive_thread_running = False
-                self.receive_thread.join() 
-        except serial.SerialException as e:
-            return False
-        return True
+    def close(self) -> None:
+        self.can_close_lock.acquire()
+        self.serial.close()
+        self.receive_thread_running.set()
 
     # Send a command to the USBNow device
     def send_slip_bytes(self, data: bytes):
@@ -173,34 +168,38 @@ class USBNow:
             self.serial.write(bytes([data]))
 
     def will_wait_ok(self):
-        self._will_wait_ok = True
+        self._will_wait_ok.set()
 
     # Wait for a response from the USBNow device until timeout
     def wait_ok(self) -> str|None:
         #res = self.OK_resp_lock.acquire(timeout=self.timeout)
-        #print("waiting for OK")
+        print("waiting for OK")
         with self.OK_resp_lock:
             self.OK_resp_lock.notify()
             res = self.OK_resp_lock.wait(self.timeout)
             if(res == False):
                 return("timeout")
-            self._will_wait_ok = False
+            self._will_wait_ok.clear()
         if(self.print_error and self.error_resp):
             print("Error:", self.error_resp)
+        print("OK Release")
         #self.OK_resp_lock.release()
         return(self.error_resp)
     
     # Receive loop
     def rx_loop(self):
         #self.OK_resp_lock.acquire()
-        while self.receive_thread_running:
+        while not self.receive_thread_running.is_set():
             if(not self.serial.is_open): continue
             timeout = time.time() + 1
-            with self.can_close_lock:
-                while(self.serial.in_waiting and time.time() < timeout):
-                    byte = self.serial.read(1)
-                    #print("rx: ", byte)
-                    self.slip_decoder.push(byte[0])
+            #...
+            self.can_close_lock.acquire()
+            while(self.serial.in_waiting and time.time() < timeout):
+                byte = self.serial.read(1)
+                #print("rx: ", byte)
+                self.slip_decoder.push(byte[0])
+            self.can_close_lock.release()
+            #...
             if(self.slip_decoder.in_wait() > 0):
                 data = self.slip_decoder.get()
                 #print("Data: ", data)
@@ -212,8 +211,6 @@ class USBNow:
     # Parse received package
     def parse_receive_package(self, data: bytes) -> None:
         #print("Data: ", data)
-        if(data[0] == self.waiting_response):
-            self.waiting_response = None
         
         if(data[0] == RESP.RECV_CB):
             if(self.receive_cb):
@@ -225,9 +222,9 @@ class USBNow:
                 self.send_cb(data[1:7], ["OK", "ERROR"][data[7]])
         elif(data[0] == RESP.ERROR):
             with self.OK_resp_lock:
-                if(self._will_wait_ok): self.OK_resp_lock.wait(timeout=0.01)
+                if(self._will_wait_ok.is_set()): self.OK_resp_lock.wait(timeout=0.01)
                 self.error_resp = data[1:].decode()
-                if(self._will_wait_ok): self.OK_resp_lock.notify()
+                if(self._will_wait_ok.is_set()): self.OK_resp_lock.notify()
                 #self.OK_resp_lock.release()
         elif(data[0] == RESP.ERROR_LEN):
             raise Exception("USBNow Error: Invalid Length")
@@ -235,9 +232,9 @@ class USBNow:
             raise Exception("USBNow Error: Unknown Command")
         elif(data[0] == RESP.OK):
             with self.OK_resp_lock:
-                if(self._will_wait_ok): self.OK_resp_lock.wait(timeout=0.01)
+                if(self._will_wait_ok.is_set()): self.OK_resp_lock.wait(timeout=0.01)
                 self.error_resp = None
-                if(self._will_wait_ok): self.OK_resp_lock.notify()
+                if(self._will_wait_ok.is_set()): self.OK_resp_lock.notify()
                 #self.OK_resp_lock.release()
         else:
             self.receive_buffer.append(data)
@@ -560,3 +557,31 @@ class SLIP:
         self.esc_flag = False
         self.wait_ack = False
         self.checksum = 0
+
+
+# Ping tester
+if(__name__ == "__main__"):
+    import time, sys
+    def recv_cb(mac: bytes, data: bytes):
+        print(f"Received {data} from {MAC(mac)}")
+    def send_cb(mac: bytes, status: str):
+        print(f"Send to {MAC(mac)}: {status}")
+    usbnow = USBNow("COM11")
+    usbnow.register_recv_cb(recv_cb)
+    #usbnow.register_send_cb(send_cb)
+    err = usbnow.init()
+    if(err):
+        print("USBNow has error: ", err)
+        sys.exit(1)
+    print("USBNow initialized")
+    res = usbnow.add_peer(MAC("FF:FF:FF:FF:FF:FF"))
+    try:
+        while True:
+            start_send = time.time()
+            res = usbnow.send(MAC("FF:FF:FF:FF:FF:FF"), bytes(100))
+            end_send = time.time()
+            print("Send Per Second", 1/(end_send-start_send))
+    except KeyboardInterrupt:
+        print("Exiting...")
+        usbnow.close()
+        print("Closed")
