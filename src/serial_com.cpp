@@ -29,6 +29,9 @@ void serial_task(){
   if(slip_is_ready(rx_slip_buffer)){
     size_t package_len = slip_get_size(rx_slip_buffer);
     uint8_t *package = slip_get_buffer(rx_slip_buffer);
+    //for (size_t i = 0; i < package_len; i++){
+    //  Serial.print(package[i]);
+    //}
     CMD_parse(package, package_len);
     slip_reset(rx_slip_buffer);
   }

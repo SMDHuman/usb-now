@@ -103,8 +103,11 @@ uint8_t slip_is_ready(uint8_t *buffer);
         uint8_t *data_buffer = buffer + sizeof(slip_buffer_header_t);
         if(slip_buffer_header->ready){
             if(slip_buffer_header->checksum_enable == true){
-                uint32_t checksum = (uint32_t)(data_buffer[slip_buffer_header->len]);
-                if(slip_buffer_header->checksum == checksum){
+                uint32_t *rx_checksum = (uint32_t *)(data_buffer + slip_buffer_header->len);
+                //Serial.print("checksum: ");
+                //Serial.println(slip_buffer_header->checksum);
+                //Serial.println(*rx_checksum);
+                if(slip_buffer_header->checksum == *rx_checksum){
                     return(true);
                 }else{
                     slip_reset(buffer);

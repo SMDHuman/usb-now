@@ -278,6 +278,7 @@ class USBNow:
         self.send_slip_bytes(bytes([CMD.GET_VERSION]))
         res = self.wait_ok()
         if(res): return res
+        if(len(self.receive_buffer) == 0): return "No Response"
         if(self.receive_buffer[-1][0] == RESP.VERSION):
             return struct.unpack("I", self.receive_buffer[-1][1:])[0]
     
@@ -361,6 +362,7 @@ class USBNow:
         """
         self.send_slip_bytes(bytes([CMD.GET_PEER]) + bytes(peer_addr))
         self.wait_ok()
+        if(len(self.receive_buffer) == 0): return "No Response"
         if(self.receive_buffer[-1][0] == RESP.PEER):
             return (self.receive_buffer[-1][1:7], self.receive_buffer[-1][7], self.receive_buffer[-1][8])
         else:
@@ -380,6 +382,7 @@ class USBNow:
         """
         self.send_slip_bytes(bytes([CMD.FETCH_PEER, from_head]))
         self.wait_ok()
+        if(len(self.receive_buffer) == 0): return "No Response"
         if(self.receive_buffer[-1][0] == RESP.PEER):
             return (self.receive_buffer[-1][1:7], self.receive_buffer[-1][7], self.receive_buffer[-1][8])
         else:
@@ -399,6 +402,7 @@ class USBNow:
         """
         self.send_slip_bytes(bytes([CMD.IS_PEER_EXIST]) + bytes(peer_addr))
         self.wait_ok()
+        if(len(self.receive_buffer) == 0): return "No Response"
         if(self.receive_buffer[-1][0] == RESP.PEER_EXIST):
             return self.receive_buffer[-1][1]
         else:
@@ -415,6 +419,7 @@ class USBNow:
         """
         self.send_slip_bytes(bytes([CMD.GET_PEER_NUM]))
         self.wait_ok()
+        if(len(self.receive_buffer) == 0): return "No Response"
         if(self.receive_buffer[-1][0] == RESP.PEER_NUM):
             return struct.unpack("i", self.receive_buffer[-1][1:])[0]
         else:
@@ -456,6 +461,7 @@ class USBNow:
         """
         self.send_slip_bytes(bytes([CMD.GET_MAC]))
         self.wait_ok()
+        if(len(self.receive_buffer) == 0): return "No Response"
         if(self.receive_buffer[-1][0] == RESP.PEER_ADDR):
             return MAC(self.receive_buffer[-1][1:7])
         else:
